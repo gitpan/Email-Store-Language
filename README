@@ -1,0 +1,24 @@
+Email::Store::Language - Add language identification to emails and lists
+
+
+INSTALLATION
+
+To install this module type the following:
+
+   perl Makefile.PL
+   make
+   make test
+   make install
+
+
+AUTHOR
+
+Brian Cassidy <bricas@cpan.org>
+
+
+COPYRIGHT AND LICENSE
+
+Copyright 2005 by Brian Cassidy
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
