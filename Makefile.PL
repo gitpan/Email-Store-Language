@@ -5,6 +5,7 @@ WriteMakefile(
 	PREREQ_PM    => {
 		'Test::More'       => 0,
 		'Email::Store'     => 0,
-		'Lingua::Identify' => 0
+		'Lingua::Identify' => 0,
+		'DBD::SQLite2'     => 0
 	},
 );

@@ -1,74 +1,9 @@
-package Email::Store::Mail::Language;
-
-use base qw( Email::Store::DBI );
-
-use strict; 
-use warnings;
-
-use Email::Store::Mail;
-use Lingua::Identify qw( langof );
-
-__PACKAGE__->table( 'mail_language' );
-__PACKAGE__->columns( All => qw( mail language ) );
-__PACKAGE__->columns( Primary => qw( mail ) );
-__PACKAGE__->has_a( mail => 'Email::Store::Mail' );
-
-Email::Store::Mail->might_have( mail_language => 'Email::Store::Mail::Language' => qw( language ) );
-
-sub on_store_order { 81 }
-
-sub on_store {
-	my( $self, $mail ) = @_;
-
-	my $language = langof( $mail->simple->body );
-
-	if( $language ) {
-		Email::Store::Mail::Language->create( {
-			mail     => $mail->id, 
-			language => $language
-		} );
-	}
-
-	for my $list ( $mail->lists ) {
-		my $probability = 1 / scalar( $list->posts );
-		$list->calculate_language if rand( 1 ) <= $probability;
-	}
-}
-
-package Email::Store::List;
-
-sub calculate_language {
-	my $self = shift;
-
-	my %languages;
-
-	for my $post ( $self->posts ) {
-		next unless $post->language;
-		$languages{ $post->language }++;
-	}
-
-	my( $language ) = sort { $languages{ $b } <=> $languages{ $a } } keys %languages;
-
-	$self->language( $language );
-	$self->update;
-}
-
-package Email::Store::List::Language;
-
-use base 'Email::Store::DBI';
-
-use Email::Store::List;
-
-__PACKAGE__->table( 'list_language' );
-__PACKAGE__->columns( All => qw( list language ) );
-__PACKAGE__->columns( Primary => qw( list ) );
-__PACKAGE__->has_a( list => 'Email::Store::List' );
-
-Email::Store::List->might_have( list_language => 'Email::Store::List::Language' => qw( language ) );
-
 package Email::Store::Language;
 
-our $VERSION = '0.01';
+use strict;
+use warnings;
+
+our $VERSION = '0.02';
 
 use base qw( Email::Store::DBI );
 
@@ -118,7 +53,84 @@ it under the same terms as Perl itself.
 
 =cut
 
+package Email::Store::Mail::Language;
+
+use base qw( Email::Store::DBI );
+
+use strict; 
+use warnings;
+
+use Email::Store::Mail;
+use Lingua::Identify qw( langof );
+
+__PACKAGE__->table( 'mail_language' );
+__PACKAGE__->columns( All => qw( mail language ) );
+__PACKAGE__->columns( Primary => qw( mail ) );
+__PACKAGE__->has_a( mail => 'Email::Store::Mail' );
+
+Email::Store::Mail->might_have( mail_language => 'Email::Store::Mail::Language' => qw( language ) );
+
+sub on_store_order { 81 }
+
+sub on_store {
+	my( $self, $mail ) = @_;
+
+	my $language = langof( $mail->simple->body );
+
+	if( $language ) {
+		Email::Store::Mail::Language->create( {
+			mail     => $mail->id, 
+			language => $language
+		} );
+	}
+
+	for my $list ( $mail->lists ) {
+		my $probability = 1 / scalar( $list->posts );
+		$list->calculate_language if rand( 1 ) <= $probability;
+	}
+}
+
+package Email::Store::List;
+
+use strict;
+use warnings;
+
+sub calculate_language {
+	my $self = shift;
+
+	my %languages;
+
+	for my $post ( $self->posts ) {
+		next unless $post->language;
+		$languages{ $post->language }++;
+	}
+
+	my( $language ) = sort { $languages{ $b } <=> $languages{ $a } } keys %languages;
+
+	$self->language( $language );
+	$self->update;
+}
+
+package Email::Store::List::Language;
+
+use strict;
+use warnings;
+
+use base 'Email::Store::DBI';
+
+use Email::Store::List;
+
+__PACKAGE__->table( 'list_language' );
+__PACKAGE__->columns( All => qw( list language ) );
+__PACKAGE__->columns( Primary => qw( list ) );
+__PACKAGE__->has_a( list => 'Email::Store::List' );
+
+Email::Store::List->might_have( list_language => 'Email::Store::List::Language' => qw( language ) );
+
+package Email::Store::Language;
+
 1;
+
 __DATA__
 CREATE TABLE IF NOT EXISTS mail_language (
     mail varchar(255) NOT NULL PRIMARY KEY,                                                 
