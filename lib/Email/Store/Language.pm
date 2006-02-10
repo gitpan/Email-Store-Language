@@ -3,9 +3,11 @@ package Email::Store::Language;
 use strict;
 use warnings;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 use base qw( Email::Store::DBI );
+
+our $OPTIONS = {};
 
 =head1 NAME
 
@@ -20,11 +22,50 @@ Remember to create the database table:
 
 And now:
 
-    print $mail->language, "\n";
+    for( $mail->languages ) {
+        print $_->language . "\n";
+    }
 
 or
 
-    print $list->language, "\n";
+    for( $list->languages ) {
+        print $_->language . "\n";
+    }
+
+=head1 DESCRIPTION
+
+This module will help you auto-identify the language of
+your messages and lists. There are some options you can use
+to help refine the process.
+
+=head2 set_active_languages
+
+This is a method from L<Lingua::Identify> that will let you
+limit what languages your messages should be checked against.
+
+    # limit to english and french
+    use Lingua::Identify qw( set_active_languages );
+    set_active_languages( qw( en fr ) );
+
+=head2 $EMAIL::Store::Language::OPTIONS
+
+This is a hashref of options that will be passed as the
+first argument to C<langof()>. There is one exception:
+the C<threshold> option. C<threshold> should be a number
+(percentage) between 0 and 1. The default is 0.5.
+
+    $Email::Store::Language::OPTIONS = { threshold => 0.35 };
+
+In the above example, a threshold of 0.35 means that, for mail
+language identification, if L<Lingua::Identify> claims to be 35%
+sure that the message is a given language it will store that language.
+If no languages are above the threshold, then the language of most
+confidence will be used.
+
+For list identification, it means that if 35% of the messages are
+identified as being a given language, then it will store that language.
+If no languages are above the threshold, then the language of most
+confidence will be used.
 
 =head1 SEE ALSO
 
@@ -46,7 +87,7 @@ or
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright 2005 by Brian Cassidy
+Copyright 2006 by Brian Cassidy
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself. 
@@ -61,32 +102,51 @@ use strict;
 use warnings;
 
 use Email::Store::Mail;
-use Lingua::Identify qw( langof );
 
 __PACKAGE__->table( 'mail_language' );
-__PACKAGE__->columns( All => qw( mail language ) );
-__PACKAGE__->columns( Primary => qw( mail ) );
+__PACKAGE__->columns( All => qw( id mail language ) );
+__PACKAGE__->columns( Primary => qw( id ) );
 __PACKAGE__->has_a( mail => 'Email::Store::Mail' );
 
-Email::Store::Mail->might_have( mail_language => 'Email::Store::Mail::Language' => qw( language ) );
+Email::Store::Mail->has_many( languages => 'Email::Store::Mail::Language' );
 
 sub on_store_order { 81 }
 
 sub on_store {
 	my( $self, $mail ) = @_;
 
-	my $language = langof( $mail->simple->body );
-
-	if( $language ) {
-		Email::Store::Mail::Language->create( {
-			mail     => $mail->id, 
-			language => $language
-		} );
-	}
+	$mail->calculate_language;
 
 	for my $list ( $mail->lists ) {
 		my $probability = 1 / scalar( $list->posts );
 		$list->calculate_language if rand( 1 ) <= $probability;
+	}
+}
+
+package Email::Store::Mail;
+
+use Lingua::Identify qw( langof );
+
+sub calculate_language {
+	my $self      = shift;
+
+	my %options   = %{ $Email::Store::Language::OPTIONS };
+	my $thresh    = delete $options{ threshold } || '0.5';
+	my %languages = langof( \%options, $self->simple->body );
+	my @langs     = sort { $languages{ $b } <=> $languages{ $a } } keys %languages;
+
+	push @langs, 'en' unless @langs;
+
+	$_->delete for $self->languages;
+
+	my $count = 0;
+	for( keys %languages ) {
+		next unless $languages{ $_ } >= $thresh;
+		$count++;
+		$self->add_to_languages( { language => $_ } );
+	}
+	unless( $count ) {
+		$self->add_to_languages( { language => $langs[ 0 ] } );
 	}
 }
 
@@ -99,16 +159,28 @@ sub calculate_language {
 	my $self = shift;
 
 	my %languages;
-
+	my $total = 0;
 	for my $post ( $self->posts ) {
-		next unless $post->language;
-		$languages{ $post->language }++;
+		my @languages = $post->languages;
+		next unless @languages;
+		$languages{ $_->language }++ for @languages;
+		$total++;
 	}
 
-	my( $language ) = sort { $languages{ $b } <=> $languages{ $a } } keys %languages;
+	$_->delete for $self->languages;
 
-	$self->language( $language );
-	$self->update;
+	my $thresh = $Email::Store::Language::OPTIONS->{ threshold } || 0.5;
+	my @langs  = sort { $languages{ $b } <=> $languages{ $a } } keys %languages;
+
+	my $count = 0;
+	for( @langs ) {
+		next unless $languages { $_ } / $total >= $thresh;
+		$count++;
+		$self->add_to_languages( { language => $_ } );
+	}
+	unless( $count ) {
+		$self->add_to_languages( { language => $langs[ 0 ] } );
+	}
 }
 
 package Email::Store::List::Language;
@@ -121,11 +193,11 @@ use base 'Email::Store::DBI';
 use Email::Store::List;
 
 __PACKAGE__->table( 'list_language' );
-__PACKAGE__->columns( All => qw( list language ) );
-__PACKAGE__->columns( Primary => qw( list ) );
+__PACKAGE__->columns( All => qw( id list language ) );
+__PACKAGE__->columns( Primary => qw( id ) );
 __PACKAGE__->has_a( list => 'Email::Store::List' );
 
-Email::Store::List->might_have( list_language => 'Email::Store::List::Language' => qw( language ) );
+Email::Store::List->has_many( languages => 'Email::Store::List::Language' );
 
 package Email::Store::Language;
 
@@ -133,10 +205,12 @@ package Email::Store::Language;
 
 __DATA__
 CREATE TABLE IF NOT EXISTS mail_language (
-    mail varchar(255) NOT NULL PRIMARY KEY,                                                 
-    language varchar(10)
+    id       INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    mail     VARHCHAR(255) NOT NULL,
+    language VARCHAR(10)
 );
 CREATE TABLE IF NOT EXISTS list_language (
-    list     varchar(255) NOT NULL PRIMARY KEY,                                                 
-    language varchar(10)
+    id       INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    list     VARCHAR(255) NOT NULL,
+    language VARCHAR(10)
 );
